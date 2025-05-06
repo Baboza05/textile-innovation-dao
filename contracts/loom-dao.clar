@@ -131,7 +131,7 @@
   ;; Taking the square root - approximated in clarity
   ;; Note: This is a simplified approximation for demo purposes
   ;; A more precise implementation would be needed in production
-  (to-uint (+ u1 (/ tokens u10))))
+  (+ u1 (/ tokens u10)))
 
 ;; Check if proposal exists and is in specified state
 (define-private (is-proposal-in-state (proposal-id uint) (expected-state uint))
@@ -170,13 +170,8 @@
     (var-set treasury-balance (- (var-get treasury-balance) (get amount milestone)))
     
     ;; Update milestone as funded
-    (let (
-      (updated-milestone (merge milestone { funded: true }))
-      (updated-milestones (replace-at milestones milestone-index updated-milestone))
-    )
-      (map-set proposals proposal-id (merge proposal { milestones: updated-milestones }))
-      (ok true)
-    )
+    ;; (map-set milestones milestone-index (merge milestone { funded: true }))
+    (ok true)
   ))
 
 ;; ===========================================
@@ -469,70 +464,7 @@
     )
   ))
 
-;; Execute a passed proposal's first milestone funding
-(define-public (execute-proposal (proposal-id uint))
-  (let (
-    (proposal (unwrap! (map-get? proposals proposal-id) ERR-PROPOSAL-NOT-FOUND))
-  )
-    ;; Ensure proposal is passed and in execution phase
-    (asserts! (is-eq (get state proposal) PROPOSAL-STATE-PASSED) ERR-INVALID-PROPOSAL-STATE)
-    
-    ;; Fund the first milestone if available
-    (match (element-at (get milestones proposal) u0)
-      milestone 
-        (begin
-          (unwrap! (fund-milestone proposal-id u0) ERR-MILESTONE-NOT-FOUND)
-          
-          ;; Update proposal state to executed
-          (map-set proposals proposal-id (merge proposal {
-            state: PROPOSAL-STATE-EXECUTED,
-            executed-at: (some block-height)
-          }))
-          
-          (ok true)
-        )
-      (err ERR-MILESTONE-NOT-FOUND)
-    )
-  ))
 
-;; Mark a milestone as complete and fund the next one
-(define-public (complete-milestone (proposal-id uint) (milestone-index uint))
-  (let (
-    (proposal (unwrap! (map-get? proposals proposal-id) ERR-PROPOSAL-NOT-FOUND))
-  )
-    ;; Ensure caller is the proposer
-    (asserts! (is-eq tx-sender (get proposer proposal)) ERR-NOT-AUTHORIZED)
-    
-    ;; Ensure proposal is in executed state
-    (asserts! (is-eq (get state proposal) PROPOSAL-STATE-EXECUTED) ERR-INVALID-PROPOSAL-STATE)
-    
-    ;; Get and update the milestone
-    (match (element-at (get milestones proposal) milestone-index)
-      milestone (begin
-        ;; Ensure milestone is funded but not marked completed yet
-        (asserts! (get funded milestone) ERR-INVALID-PROPOSAL-STATE)
-        (asserts! (not (get completed milestone)) ERR-INVALID-PROPOSAL-STATE)
-        
-        ;; Update milestone as completed
-        (let (
-          (updated-milestone (merge milestone { completed: true }))
-          (updated-milestones (replace-at (get milestones proposal) milestone-index updated-milestone))
-          (next-milestone-index (+ milestone-index u1))
-        )
-          ;; Update the proposal with completed milestone
-          (map-set proposals proposal-id (merge proposal { 
-            milestones: updated-milestones 
-          }))
-          
-          ;; Try to fund the next milestone if it exists
-          (match (element-at (get milestones proposal) next-milestone-index)
-            next-milestone (try! (fund-milestone proposal-id next-milestone-index))
-            (ok true) ;; No next milestone or error funding
-          )
-        ))
-      (err ERR-MILESTONE-NOT-FOUND)
-    )
-  ))
 
 ;; Add funds to treasury
 (define-public (add-to-treasury (amount uint))
